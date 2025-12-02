@@ -1,0 +1,17 @@
+# Compilación
+*.o
+*.out
+*.exe
+
+/build/
+/debug/
+/release/
+
+/bin/*.bin
+
+*.log
+*.tmp
+.vscode/
+.idea/
+*.swp
+.DS_Store
