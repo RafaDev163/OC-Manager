@@ -7,7 +7,7 @@
 /debug/
 /release/
 
-/bin/*.bin
+*.bin
 
 *.log
 *.tmp
