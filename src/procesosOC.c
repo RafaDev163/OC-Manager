@@ -6,7 +6,46 @@
 #include <errno.h>
 #include "procesosOC.h"
     
-    
+// helpers de conversion disco <-> memoria
+static void disk_v1_0_0_to_mem(const ProcesoOC_on_Disk *disk, ProcesoOC *mem){
+    mem->num_OC = disk->num_OC;
+    strncpy(mem->nombre_prov, disk->nombre_prov, MAX_SIZE_NOMBRE_PROVEEDOR);
+    mem->nombre_prov[MAX_SIZE_NOMBRE_PROVEEDOR - 1] = '\0';
+    strncpy(mem->nombre_etiq, disk->nombre_etiq, MAX_SIZE_NOMBRE_ETIQUETADOR);
+    mem->nombre_etiq[MAX_SIZE_NOMBRE_ETIQUETADOR - 1] = '\0';
+    mem->cant_productos = disk->cant_productos;
+    mem->inicio = disk->inicio;
+    mem->fin = disk->fin;
+    mem->estado = (EstadoProcesoOC)disk->estado;
+    mem->fecha_surtido = 0; // No disponible en v1.0.0
+}
+
+static void disk_v1_0_1_to_mem(const ProcesoOC_on_Disk_v1_0_1 *disk, ProcesoOC *mem){
+    mem->num_OC = disk->num_OC;
+    strncpy(mem->nombre_prov, disk->nombre_prov, MAX_SIZE_NOMBRE_PROVEEDOR);
+    mem->nombre_prov[MAX_SIZE_NOMBRE_PROVEEDOR - 1] = '\0';
+    strncpy(mem->nombre_etiq, disk->nombre_etiq, MAX_SIZE_NOMBRE_ETIQUETADOR);
+    mem->nombre_etiq[MAX_SIZE_NOMBRE_ETIQUETADOR - 1] = '\0';
+    mem->cant_productos = disk->cant_productos;
+    mem->inicio = disk->inicio;
+    mem->fin = disk->fin;
+    mem->estado = (EstadoProcesoOC)disk->estado;
+    mem->fecha_surtido = disk->fecha_surtido;
+}
+
+static void mem_to_disk_v1_0_1(const ProcesoOC *mem, ProcesoOC_on_Disk_v1_0_1 *disk){
+    disk->num_OC = mem->num_OC;
+    strncpy(disk->nombre_prov, mem->nombre_prov, MAX_SIZE_NOMBRE_PROVEEDOR);
+    disk->nombre_prov[MAX_SIZE_NOMBRE_PROVEEDOR - 1] = '\0';
+    strncpy(disk->nombre_etiq, mem->nombre_etiq, MAX_SIZE_NOMBRE_ETIQUETADOR);
+    disk->nombre_etiq[MAX_SIZE_NOMBRE_ETIQUETADOR - 1] = '\0';
+    disk->cant_productos = mem->cant_productos;
+    disk->inicio = mem->inicio;
+    disk->fin = mem->fin;
+    disk->estado = (int32_t)mem->estado;
+    disk->fecha_surtido = mem->fecha_surtido;
+}
+
 
 void limpiar_buffer(){
     int c;
@@ -32,6 +71,17 @@ void liberarListaProcesosOC(ProcesoOC **lista) {
     }
 
     *lista = NULL;
+}
+
+int calcular_fecha_surtido(time_t fecha_cambio_surtido){
+    //lunes de la semana siguiente
+    struct tm *tm_info = localtime(&fecha_cambio_surtido);
+    int w = tm_info->tm_wday; // 0=Domingo, 1=Lunes, ..., 6=Sábado
+    int dias = 7 -((w + 6 )%7);
+    if (dias == 0){
+        dias = 7; // Si es lunes, sumar 7 días para el próximo lunes
+    }
+    return dias;
 }
 
 /**
@@ -72,6 +122,7 @@ int agregarProcesoOC(ProcesoOC **lista, int num_OC, const char *nombre_prov, con
     nuevo_proceso->inicio = 0;
     nuevo_proceso->fin = 0;
     nuevo_proceso->estado = OC_PENDIENTE;
+    nuevo_proceso->fecha_surtido = 0;
     nuevo_proceso->sig = *lista;
     *lista = nuevo_proceso;
 
@@ -108,6 +159,22 @@ int finalizarEtiquetadoOC(ProcesoOC *proceso) {
     return 0; // Éxito
 }
 
+int surtirOC(ProcesoOC *proceso){
+    if (!proceso) {
+        return OC_ERR_PARAM; // Error de parámetros
+    }
+
+    if (proceso->estado != OC_ETIQUETADA) {
+        return OC_ERR_ESTADO; // Proceso no está en estado etiquetada
+    }
+    time_t ahora = time(NULL);
+    int dias_para_surtido = calcular_fecha_surtido(ahora);
+    proceso->fecha_surtido = ahora + (dias_para_surtido * 24 * 60 * 60);
+    proceso->estado = OC_SURTIDA;
+
+    return 0; // Éxito
+}
+
 ProcesoOC* buscarProcesoOC(ProcesoOC *lista, int num_OC) {
     while (lista) {
         if (lista->num_OC == num_OC) {
@@ -118,6 +185,7 @@ ProcesoOC* buscarProcesoOC(ProcesoOC *lista, int num_OC) {
     return NULL; // no encontrado
 }
 
+
 void listarProcesosOC(const ProcesoOC *lista) {
     const ProcesoOC *actual = lista;
     printf("Listado de Procesos de Ordenes de Compra:\n");
@@ -125,8 +193,10 @@ void listarProcesosOC(const ProcesoOC *lista) {
     while (actual) {
         char inicio_str[26];
         char fin_str[26];
+        char fecha_surtido_str[26];
         strcpy(inicio_str, "N/A");
         strcpy(fin_str, "N/A");
+        strcpy(fecha_surtido_str, "N/A");
 
         if (actual->inicio != 0) {
             ctime_s(inicio_str, sizeof(inicio_str), &actual->inicio);
@@ -135,6 +205,10 @@ void listarProcesosOC(const ProcesoOC *lista) {
         if (actual->fin != 0) {
             ctime_s(fin_str, sizeof(fin_str), &actual->fin);
             fin_str[strcspn(fin_str, "\n")] = 0;
+        }
+        if (actual->fecha_surtido != 0) {
+            ctime_s(fecha_surtido_str, sizeof(fecha_surtido_str), &actual->fecha_surtido);
+            fecha_surtido_str[strcspn(fecha_surtido_str, "\n")] = 0;
         }
 
         const char *estado_str;
@@ -148,19 +222,23 @@ void listarProcesosOC(const ProcesoOC *lista) {
             case OC_ETIQUETADA:
                 estado_str = "ETIQUETADA";
                 break;
+            case OC_SURTIDA:
+                estado_str = "SURTIDA";
+                break;
             default:
                 estado_str = "DESCONOCIDO";
                 break;
         }
 
-        printf("OC Nro: %d | Proveedor: %s | Etiquetador: %s | Cantidad Productos: %zu | Inicio: %s | Fin: %s | Estado: %s\n",
+        printf("OC Nro: %d | Proveedor: %s | Etiquetador: %s | Cantidad Productos: %zu | Inicio: %s | Fin: %s | Estado: %s\n | Fecha Surtido: %s\n",
                actual->num_OC,
                actual->nombre_prov,
                actual->nombre_etiq,
                actual->cant_productos,
                inicio_str,
                fin_str,
-               estado_str);
+               estado_str,
+               fecha_surtido_str);
 
         actual = actual->sig;
     }
@@ -168,17 +246,22 @@ void listarProcesosOC(const ProcesoOC *lista) {
 }
 
 
+
 /* * Guarda la lista de procesos OC en un archivo binario.
- * 
+
+ * helper actualizado para version v1.0.1
  * @param nombre_archivo Nombre del archivo donde se guardarán los datos.
  * @param lista Puntero a la lista de procesos OC.
+ * @param count Cantidad de procesos en la lista.
  * @return 0 en caso de éxito, código de error en caso contrario.
  */ 
 
-int guardarProcesosOCEnDisco(const char *nombre_archivo, const ProcesoOC *lista) {
-    if (!nombre_archivo) {
-        return OC_ERR_PARAM; // Error de parámetros
-    }
+int guardarProcesosOCEnDisco(const char *nombre_archivo, const ProcesoOC *lista, size_t count){
+    if (!nombre_archivo || (!lista && count > 0)) {
+        perror("Parámetros inválidos para guardar procesos OC en disco");
+        return OC_ERR_PARAM;
+}
+
 
     FILE *archivo = fopen(nombre_archivo, "wb");
     if (!archivo) {
@@ -186,39 +269,32 @@ int guardarProcesosOCEnDisco(const char *nombre_archivo, const ProcesoOC *lista)
         return OC_ERR_IO;
     }
 
-    // Contar la cantidad de procesos en la lista
-    uint32_t count = 0;
-    for(const ProcesoOC *temp = lista; temp; temp = temp->sig) {
-        count++;
-    }
-    // Escribir la cantidad de procesos al inicio del archivo
-    if(fwrite(&count, sizeof(count), 1, archivo) != 1) {
-        perror("Error al escribir la cantidad de procesos en el archivo");
+    oc_file_header header;
+    header.magic = OC_FILE_MAGIC;
+    header.major = 1;
+    header.minor = 1;
+
+    // Escribir la cantidad de procesos
+    if(fwrite(&header, sizeof(header), 1, archivo) != 1) {
+        perror("Error al escribir el encabezado del archivo");
         fclose(archivo);
         return OC_ERR_IO;
     }
-    // Escribir cada proceso en el archivo
-    for(const ProcesoOC *actual = lista; actual; actual = actual->sig) {
-        ProcesoOC_on_Disk registro_disk;
-        registro_disk.estado = (int32_t)actual->estado;
-        registro_disk.num_OC = actual->num_OC;
-        strncpy(registro_disk.nombre_prov, actual->nombre_prov, MAX_SIZE_NOMBRE_PROVEEDOR);
-        registro_disk.nombre_prov[MAX_SIZE_NOMBRE_PROVEEDOR - 1] = '\0';
-        strncpy(registro_disk.nombre_etiq, actual->nombre_etiq, MAX_SIZE_NOMBRE_ETIQUETADOR);
-        registro_disk.nombre_etiq[MAX_SIZE_NOMBRE_ETIQUETADOR - 1] = '\0';
-        registro_disk.cant_productos = actual->cant_productos;
-        registro_disk.inicio = actual->inicio;
-        registro_disk.fin = actual->fin;
 
-        if (fwrite(&registro_disk, sizeof(ProcesoOC_on_Disk), 1, archivo) != 1) {
-            perror("Error al escribir un registro en el archivo");
-            fclose(archivo);
-            return OC_ERR_IO;
+    if(count > 0){
+        ProcesoOC_on_Disk_v1_0_1 temp;
+        for(size_t i = 0; i < count; i++){
+            mem_to_disk_v1_0_1(&lista[i], &temp);
+            if (fwrite(&temp, sizeof(ProcesoOC_on_Disk_v1_0_1), 1, archivo) != 1) {
+                perror("Error al escribir un registro en el archivo");
+                fclose(archivo);
+                return OC_ERR_IO;
+            }
         }
     }
+    
     fclose(archivo);
     return OC_OK;
-
 }
 
 /* Lee la lista de procesos OC desde un archivo binario.
@@ -245,57 +321,205 @@ int leerProcesosOCDesdeDisco(const char *nombre_archivo, ProcesoOC **out_lista, 
         perror("Error al abrir archivo para lectura");
         return OC_ERR_IO;
     }
-    
-    uint32_t count = 0;
-    if (fread(&count, sizeof count, 1, archivo) != 1) {
+    // intento de leer el encabezado
+    uint32_t magic;
+    size_t leidos = fread(&magic, sizeof(uint32_t), 1, archivo);
+    if (leidos != 1) {
+    // Puede ser EOF (archivo vacío) o error real
         if (feof(archivo)) {
-            // Archivo vacío → lo tratamos como sin procesos
+            // Archivo vacío: lista vacía, caso normal
             fclose(archivo);
+            *out_lista = NULL;
+            *out_count = 0;
             return OC_OK;
+        } else {
+            // Error real de lectura
+            perror("Error al leer encabezado de archivo");
+            fclose(archivo);
+            return OC_ERR_IO;
         }
-        perror("Error al leer la cantidad de procesos del archivo");
-        fclose(archivo);
-        return OC_ERR_IO;
     }
-    ProcesoOC *lista = NULL, *ultimo = NULL;
-    for (uint32_t i = 0; i < count; i++) {
-        ProcesoOC_on_Disk registro_disk;
-        if (fread(&registro_disk, sizeof(ProcesoOC_on_Disk), 1, archivo) != 1) {
-            perror("Error al leer un registro del archivo");
-            liberarListaProcesosOC(&lista);
+        // DEBUG
+        printf("DEBUG leer: magic = 0x%08X\n", magic);
+        fflush(stdout);
+    if(magic == OC_FILE_MAGIC){
+        //Nuevo formato v1.0.1
+        oc_file_header header;
+        header.magic = magic;
+        if(fread(&header.major, sizeof(header.major), 1, archivo) != 1 ||
+            fread(&header.minor, sizeof(header.minor), 1, archivo) != 1) {
+            fclose(archivo);
+            return OC_ERR_IO; // Error al leer el encabezado
+        }
+    
+    
+        // Calcular cantidad de registros
+        if(fseek(archivo, 0, SEEK_END) != 0) {
+            perror("Error al buscar el final del archivo");
+            fclose(archivo);
+            return OC_ERR_IO;
+        }
+    
+        long tamanio_archivo = ftell(archivo);
+            if(tamanio_archivo < 0) {
+            perror("Error al obtener el tamaño del archivo");
             fclose(archivo);
             return OC_ERR_IO;
         }
 
-        ProcesoOC *nuevo_proceso = malloc(sizeof *nuevo_proceso);
-        if (!nuevo_proceso) {
-            perror("Error al asignar memoria para nuevo proceso OC");
-            liberarListaProcesosOC(&lista);
+        long offset_datos = (long)sizeof(oc_file_header);
+            if(tamanio_archivo < offset_datos) {
+            fclose(archivo);
+            return OC_ERR_IO; // Archivo demasiado pequeño
+        }
+
+        long tamanio_datos = tamanio_archivo - offset_datos;
+            if(tamanio_datos % (long)sizeof(ProcesoOC_on_Disk_v1_0_1) != 0) {
+            fclose(archivo);
+            return OC_ERR_IO; // Tamaño de datos inválido
+        }
+        size_t count = (size_t)(tamanio_datos / (long)sizeof(ProcesoOC_on_Disk_v1_0_1));
+
+        if(fseek(archivo, offset_datos, SEEK_SET) != 0) {
+            perror("Error al buscar el inicio de los datos en el archivo");
+            fclose(archivo);
+            return OC_ERR_IO;
+        }
+
+        ProcesoOC_on_Disk_v1_0_1 *buffer_disk = (ProcesoOC_on_Disk_v1_0_1 *)malloc(count * sizeof(ProcesoOC_on_Disk_v1_0_1));
+        if (!buffer_disk) {
+            perror("Error al asignar memoria para leer los procesos OC");
             fclose(archivo);
             return OC_ERR_MEMORIA;
         }
 
-        nuevo_proceso->num_OC = registro_disk.num_OC;
-        strncpy(nuevo_proceso->nombre_prov, registro_disk.nombre_prov, MAX_SIZE_NOMBRE_PROVEEDOR);
-        nuevo_proceso->nombre_prov[MAX_SIZE_NOMBRE_PROVEEDOR - 1] = '\0';
-        strncpy(nuevo_proceso->nombre_etiq, registro_disk.nombre_etiq, MAX_SIZE_NOMBRE_ETIQUETADOR);
-        nuevo_proceso->nombre_etiq[MAX_SIZE_NOMBRE_ETIQUETADOR - 1] = '\0';
-        nuevo_proceso->cant_productos = registro_disk.cant_productos;
-        nuevo_proceso->inicio = registro_disk.inicio;
-        nuevo_proceso->fin = registro_disk.fin;
-        nuevo_proceso->estado = (EstadoProcesoOC)registro_disk.estado;
-        nuevo_proceso->sig = NULL;
-
-        if(!lista) {
-            lista = ultimo = nuevo_proceso;
-        } else {
-            ultimo->sig = nuevo_proceso;
-            ultimo = nuevo_proceso;
+        if(fread(buffer_disk, sizeof(ProcesoOC_on_Disk_v1_0_1), count, archivo) != count) {
+            perror("Error al leer los procesos OC desde el archivo");
+            free(buffer_disk);
+            fclose(archivo);
+            return OC_ERR_IO;
         }
+
+        fclose(archivo);
+
+        
+
+
+        // Convertir a memoria
+        ProcesoOC *lista = malloc(count * sizeof(ProcesoOC));
+        if(lista == NULL) {
+            perror("Error al asignar memoria para la lista de procesos OC");
+            free(buffer_disk);
+            return OC_ERR_MEMORIA;
+        }
+
+        for(size_t i = 0; i < count; i++) {
+            disk_v1_0_1_to_mem(&buffer_disk[i], &lista[i]);
+        }
+        free(buffer_disk);
+        *out_lista = lista;
+        *out_count = count;
+        return OC_OK;
+    } else {
+    // ===================== FORMATO LEGACY v1.0.0 =====================
+    // Formato real:
+    // [ uint32_t count ][ count * ProcesoOC_on_Disk ]
+
+    // Los primeros 4 bytes (magic != OC_FILE_MAGIC) en realidad son 'count'
+    uint32_t header_count = magic;
+
+    // Si el count es 0, puede ser un archivo vacío con solo el header_count
+    // Validamos el tamaño completo del archivo.
+    if (fseek(archivo, 0, SEEK_END) != 0) {
+        perror("Error al buscar el final del archivo legacy");
+        fclose(archivo);
+        return OC_ERR_IO;
     }
+
+    long tamanio_archivo = ftell(archivo);
+    if (tamanio_archivo < 0) {
+        perror("Error al obtener el tamaño del archivo legacy");
+        fclose(archivo);
+        return OC_ERR_IO;
+    }
+
+    // Tamaño esperado: 4 bytes de count + N * sizeof(ProcesoOC_on_Disk)
+    long esperado = 4 + (long)header_count * (long)sizeof(ProcesoOC_on_Disk);
+
+    if (tamanio_archivo != esperado) {
+        // El archivo no cuadra con el formato legacy esperado
+        fprintf(stderr,
+                "DEBUG IO: legacy size mismatch. tamanio_archivo=%ld, "
+                "esperado=%ld, count=%u, sizeof(ProcesoOC_on_Disk)=%zu\n",
+                tamanio_archivo, esperado, header_count,
+                sizeof(ProcesoOC_on_Disk));
+        fclose(archivo);
+        return OC_ERR_IO;
+    }
+
+    // Si no hay registros (count == 0), devolvemos lista vacía
+    if (header_count == 0) {
+        fclose(archivo);
+        *out_lista = NULL;
+        *out_count = 0;
+        return OC_OK;
+    }
+
+    // Posicionarnos justo donde empiezan los registros
+    if (fseek(archivo, sizeof(uint32_t), SEEK_SET) != 0) {
+        perror("Error al buscar el inicio de los datos legacy");
+        fclose(archivo);
+        return OC_ERR_IO;
+    }
+
+    // Reservar buffer para los registros en formato de disco
+    size_t count = header_count;
+    ProcesoOC_on_Disk *buffer_disk =
+        malloc(count * sizeof(ProcesoOC_on_Disk));
+    if (!buffer_disk) {
+        perror("Error al asignar memoria para leer procesos legacy");
+        fclose(archivo);
+        return OC_ERR_MEMORIA;
+    }
+
+    if (fread(buffer_disk, sizeof(ProcesoOC_on_Disk), count, archivo) != count) {
+        perror("Error al leer los procesos OC legacy desde el archivo");
+        free(buffer_disk);
+        fclose(archivo);
+        return OC_ERR_IO;
+    }
+
     fclose(archivo);
+
+    // Convertir a la representación en memoria
+    ProcesoOC *lista = malloc(count * sizeof(ProcesoOC));
+    if (!lista) {
+        perror("Error al asignar memoria para la lista de procesos OC");
+        free(buffer_disk);
+        return OC_ERR_MEMORIA;
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        disk_v1_0_0_to_mem(&buffer_disk[i], &lista[i]);
+    }
+
+    free(buffer_disk);
+
+    // DEBUG: Verificar la lista cargada
+    printf("DEBUG: count = %zu\n", count);
+    for (size_t i = 0; i < count; ++i) {
+        printf("  [%zu] num_OC=%d, prov=%s, etiq=%s, cant=%zu\n, estado=%d, inicio=%lld, fin=%lld\n",
+           i,
+           lista[i].num_OC,
+           lista[i].nombre_prov,
+           lista[i].nombre_etiq,
+           lista[i].cant_productos,
+           lista[i].estado,
+           lista[i].inicio,
+           lista[i].fin);
+    }
     *out_lista = lista;
-    *out_count = count;
+    *out_count = (uint32_t)count;
     return OC_OK;
 }
-   
+}

@@ -19,7 +19,8 @@ int main(){
     int lectura = leerProcesosOCDesdeDisco("procesos_oc.bin", &lista_procesos, &count); // Leer hasta 100 procesos
 
     if (lectura != OC_OK) {
-    printf("Error al leer procesos OC desde disco. Código de error: %d\n", lectura);
+        printf("Error al leer procesos OC desde disco. Código de error: %d\n", lectura);
+        printf("DEBUG lectura = %d\n", lectura);
     return 1;
     }
 
@@ -40,14 +41,15 @@ int main(){
 
     //menu principal
     do {
-        limpiar_pantalla(); // Limpiar pantalla al inicio de cada iteración
+        //limpiar_pantalla(); // Limpiar pantalla al inicio de cada iteración
 
         printf("\nMenú Principal:\n");
         printf("1. Agregar Proceso OC\n");
         printf("2. Iniciar Etiquetado OC\n");
         printf("3. Finalizar Etiquetado OC\n");
-        printf("4. Listar Procesos OC\n");
-        printf("5. Salir\n");
+        printf("4. Surtir OC\n");
+        printf("5. Listar Procesos OC\n");
+        printf("6. Salir\n");
         printf("Seleccione una opción: ");
         scanf("%d", &opc);
         limpiar_buffer(); // Limpiar buffer después de leer la opción para evitar basura en stdin
@@ -104,7 +106,8 @@ int main(){
                 int resultado = agregarProcesoOC(&lista_procesos, num_OC, nombre_prov, nombre_etiq, cant_productos);
                 if (resultado == OC_OK) {
                     printf("Proceso OC agregado exitosamente.\n");
-                    guardarProcesosOCEnDisco("procesos_oc.bin", lista_procesos);
+                    count++;
+                    guardarProcesosOCEnDisco("procesos_oc.bin", lista_procesos, count);
                 } else if (resultado == OC_ERR_DUPLICADA) {
                     printf("Error: Ya existe una OC con ese número.\n");
                 } else {
@@ -116,7 +119,7 @@ int main(){
                 limpiar_pantalla();
                 //Logica para iniciar etiquetado OC
                 // Solicita el número de OC, valida la entrada, busca el proceso y llama a iniciarEtiquetadoOC
-                printf("Ingrese número de OC a iniciar etiquetado: ");
+                //printf("Ingrese número de OC a iniciar etiquetado: ");
                 int oc_iniciar;
                 int scan_result;
                 do {
@@ -136,7 +139,7 @@ int main(){
                     int res_iniciar = iniciarEtiquetadoOC(proceso_iniciar);
                     if (res_iniciar == OC_OK) {
                         printf("Etiquetado iniciado para OC Nro: %d\n", oc_iniciar);
-                        guardarProcesosOCEnDisco("procesos_oc.bin", lista_procesos);
+                        guardarProcesosOCEnDisco("procesos_oc.bin", lista_procesos, count);
                     } else {
                         printf("Error al iniciar etiquetado. Código de error: %d\n", res_iniciar);
                     }
@@ -148,7 +151,7 @@ int main(){
             case 3:
                 limpiar_pantalla();
                 // Lógica para finalizar etiquetado OC
-                printf("Ingrese número de OC a finalizar etiquetado: ");
+                //printf("Ingrese número de OC a finalizar etiquetado: ");
                 int oc_finalizar;
                 int scan_finalizar;
                 do {
@@ -168,7 +171,7 @@ int main(){
                     int res_finalizar = finalizarEtiquetadoOC(proceso_finalizar);
                     if (res_finalizar == OC_OK) {
                         printf("Etiquetado finalizado para OC Nro: %d\n", oc_finalizar);
-                        guardarProcesosOCEnDisco("procesos_oc.bin", lista_procesos);
+                        guardarProcesosOCEnDisco("procesos_oc.bin", lista_procesos, count);
                     } else if (res_finalizar == OC_ERR_NO_INICIADO) {
                         printf("Error: El etiquetado no ha sido iniciado para OC Nro: %d\n", oc_finalizar);
                     } else if (res_finalizar == OC_ERR_YA_FINALIZADO) {
@@ -183,17 +186,51 @@ int main(){
                 break;
             case 4:
                 limpiar_pantalla();
-                listarProcesosOC(lista_procesos);
+                // Lógica para surtir OC
+                //printf("Ingrese número de OC a surtir: ");
+                int oc_surtir;
+                int scan_surtir;
+                do {
+                    printf("Ingrese un número válido de OC: ");
+                    scan_surtir = scanf("%d", &oc_surtir);
+                    if (scan_surtir != 1) {
+                        printf("Entrada inválida. Por favor ingrese un número.\n");
+                        limpiar_buffer();
+                    }
+                    if(scan_surtir == 1 && oc_surtir < 0) {
+                        printf("El número de OC no puede ser negativo.\n");
+                        scan_surtir = 0; // Forzar repetición
+                    }
+                } while (scan_surtir != 1 || oc_surtir < 0);
+                ProcesoOC *proceso_surtir = buscarProcesoOC(lista_procesos, oc_surtir);
+                if (proceso_surtir) {
+                    int res_surtir = surtirOC(proceso_surtir);
+                    if (res_surtir == OC_OK) {
+                        printf("OC Nro: %d surtida exitosamente.\n", oc_surtir);
+                        guardarProcesosOCEnDisco("procesos_oc.bin", lista_procesos, count);
+                    } else if (res_surtir == OC_ERR_ESTADO) {
+                        printf("Error: La OC Nro: %d no está en estado ETIQUETADA para ser surtida.\n", oc_surtir);
+                    } else {
+                        printf("Error al surtir OC. Código de error: %d\n", res_surtir);
+                    }
+                } else {
+                    printf("OC Nro: %d no encontrada.\n", oc_surtir);
+                }
                 pausar_pantalla();
                 break;
             case 5:
-                guardarProcesosOCEnDisco("procesos_oc.bin", lista_procesos);
+                limpiar_pantalla();
+                listarProcesosOC(lista_procesos);
+                pausar_pantalla();
+                break;
+            case 6:
+                guardarProcesosOCEnDisco("procesos_oc.bin", lista_procesos, count);
                 printf("Saliendo del programa.\n");
                 break;
             default:
                 printf("Opción inválida. Intente de nuevo.\n");
         }
-    } while(opc != 5);
+    } while(opc != 6);
 
     liberarListaProcesosOC(&lista_procesos);
     
