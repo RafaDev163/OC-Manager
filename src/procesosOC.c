@@ -256,12 +256,10 @@ void listarProcesosOC(const ProcesoOC *lista) {
  * @return 0 en caso de éxito, código de error en caso contrario.
  */ 
 
-int guardarProcesosOCEnDisco(const char *nombre_archivo, const ProcesoOC *lista, size_t count){
-    if (!nombre_archivo || (!lista && count > 0)) {
-        perror("Parámetros inválidos para guardar procesos OC en disco");
+int guardarProcesosOCEnDisco(const char *nombre_archivo, const ProcesoOC *lista, size_t count /* actualmente no usado */) {
+    if (!nombre_archivo) {
         return OC_ERR_PARAM;
-}
-
+    }
 
     FILE *archivo = fopen(nombre_archivo, "wb");
     if (!archivo) {
@@ -270,29 +268,32 @@ int guardarProcesosOCEnDisco(const char *nombre_archivo, const ProcesoOC *lista,
     }
 
     oc_file_header header;
-    header.magic = OC_FILE_MAGIC;
+    header.magic = OC_FILE_MAGIC;   // 0x4F435052
     header.major = 1;
     header.minor = 1;
 
-    // Escribir la cantidad de procesos
-    if(fwrite(&header, sizeof(header), 1, archivo) != 1) {
+    if (fwrite(&header, sizeof(header), 1, archivo) != 1) {
         perror("Error al escribir el encabezado del archivo");
         fclose(archivo);
         return OC_ERR_IO;
     }
 
-    if(count > 0){
-        ProcesoOC_on_Disk_v1_0_1 temp;
-        for(size_t i = 0; i < count; i++){
-            mem_to_disk_v1_0_1(&lista[i], &temp);
-            if (fwrite(&temp, sizeof(ProcesoOC_on_Disk_v1_0_1), 1, archivo) != 1) {
-                perror("Error al escribir un registro en el archivo");
-                fclose(archivo);
-                return OC_ERR_IO;
-            }
+    // Recorremos la lista enlazada, no como arreglo
+    const ProcesoOC *actual = lista;
+    ProcesoOC_on_Disk_v1_0_1 temp;
+
+    while (actual) {
+        mem_to_disk_v1_0_1(actual, &temp);
+
+        if (fwrite(&temp, sizeof(ProcesoOC_on_Disk_v1_0_1), 1, archivo) != 1) {
+            perror("Error al escribir un registro en el archivo");
+            fclose(archivo);
+            return OC_ERR_IO;
         }
+
+        actual = actual->sig;
     }
-    
+
     fclose(archivo);
     return OC_OK;
 }
@@ -405,121 +406,151 @@ int leerProcesosOCDesdeDisco(const char *nombre_archivo, ProcesoOC **out_lista, 
         
 
 
-        // Convertir a memoria
-        ProcesoOC *lista = malloc(count * sizeof(ProcesoOC));
-        if(lista == NULL) {
-            perror("Error al asignar memoria para la lista de procesos OC");
+        // Convertir a lista enlazada en memoria (v1.0.1)
+        ProcesoOC *head = NULL;
+        ProcesoOC *tail = NULL;
+
+        for (size_t i = 0; i < count; ++i) {
+            ProcesoOC *nuevo = malloc(sizeof(ProcesoOC));
+            if (!nuevo) {
+                perror("Error al asignar memoria para la lista de procesos OC (v1.0.1)");
+
+                // Liberar la lista ya construida
+                ProcesoOC *tmp = head;
+                while (tmp) {
+                    ProcesoOC *next = tmp->sig;
+                    free(tmp);
+                    tmp = next;
+                }
+
             free(buffer_disk);
             return OC_ERR_MEMORIA;
         }
 
-        for(size_t i = 0; i < count; i++) {
-            disk_v1_0_1_to_mem(&buffer_disk[i], &lista[i]);
+        // Copiar datos desde el registro de disco
+        disk_v1_0_1_to_mem(&buffer_disk[i], nuevo);
+        nuevo->sig = NULL;  // MUY IMPORTANTE
+
+        if (!head) {
+            head = tail = nuevo;
+        } else {
+            tail->sig = nuevo;
+            tail = nuevo;
         }
+    }
+
         free(buffer_disk);
-        *out_lista = lista;
-        *out_count = count;
+
+        *out_lista = head;
+        *out_count = (uint32_t)count;
         return OC_OK;
     } else {
-    // ===================== FORMATO LEGACY v1.0.0 =====================
-    // Formato real:
-    // [ uint32_t count ][ count * ProcesoOC_on_Disk ]
+        // ===================== FORMATO LEGACY v1.0.0 =====================
+        // Formato real:
+        // [ uint32_t count ][ count * ProcesoOC_on_Disk ]
 
-    // Los primeros 4 bytes (magic != OC_FILE_MAGIC) en realidad son 'count'
-    uint32_t header_count = magic;
+        // Los primeros 4 bytes (magic != OC_FILE_MAGIC) en realidad son 'count'
+        uint32_t header_count = magic;
 
-    // Si el count es 0, puede ser un archivo vacío con solo el header_count
-    // Validamos el tamaño completo del archivo.
-    if (fseek(archivo, 0, SEEK_END) != 0) {
-        perror("Error al buscar el final del archivo legacy");
-        fclose(archivo);
-        return OC_ERR_IO;
-    }
+        // Si el count es 0, puede ser un archivo vacío con solo el header_count
+        // Validamos el tamaño completo del archivo.
+        if (fseek(archivo, 0, SEEK_END) != 0) {
+            perror("Error al buscar el final del archivo legacy");
+            fclose(archivo);
+            return OC_ERR_IO;
+        }
 
-    long tamanio_archivo = ftell(archivo);
-    if (tamanio_archivo < 0) {
-        perror("Error al obtener el tamaño del archivo legacy");
-        fclose(archivo);
-        return OC_ERR_IO;
-    }
+        long tamanio_archivo = ftell(archivo);
+        if (tamanio_archivo < 0) {
+            perror("Error al obtener el tamaño del archivo legacy");
+            fclose(archivo);
+            return OC_ERR_IO;
+        }
 
-    // Tamaño esperado: 4 bytes de count + N * sizeof(ProcesoOC_on_Disk)
-    long esperado = 4 + (long)header_count * (long)sizeof(ProcesoOC_on_Disk);
+        // Tamaño esperado: 4 bytes de count + N * sizeof(ProcesoOC_on_Disk)
+        long esperado = 4 + (long)header_count * (long)sizeof(ProcesoOC_on_Disk);
 
-    if (tamanio_archivo != esperado) {
-        // El archivo no cuadra con el formato legacy esperado
-        fprintf(stderr,
+        if (tamanio_archivo != esperado) {
+            // El archivo no cuadra con el formato legacy esperado
+            fprintf(stderr,
                 "DEBUG IO: legacy size mismatch. tamanio_archivo=%ld, "
                 "esperado=%ld, count=%u, sizeof(ProcesoOC_on_Disk)=%zu\n",
                 tamanio_archivo, esperado, header_count,
                 sizeof(ProcesoOC_on_Disk));
-        fclose(archivo);
-        return OC_ERR_IO;
+            fclose(archivo);
+            return OC_ERR_IO;
+        }
+
+        // Si no hay registros (count == 0), devolvemos lista vacía
+        if (header_count == 0) {
+            fclose(archivo);
+            *out_lista = NULL;
+            *out_count = 0;
+            return OC_OK;
     }
 
-    // Si no hay registros (count == 0), devolvemos lista vacía
-    if (header_count == 0) {
+        // Posicionarnos justo donde empiezan los registros
+        if (fseek(archivo, sizeof(uint32_t), SEEK_SET) != 0) {
+            perror("Error al buscar el inicio de los datos legacy");
+            fclose(archivo);
+            return OC_ERR_IO;
+        }
+
+        // Reservar buffer para los registros en formato de disco
+        size_t count = header_count;
+        ProcesoOC_on_Disk *buffer_disk =
+            malloc(count * sizeof(ProcesoOC_on_Disk));
+        if (!buffer_disk) {
+            perror("Error al asignar memoria para leer procesos legacy");
+            fclose(archivo);
+            return OC_ERR_MEMORIA;
+        }
+
+        if (fread(buffer_disk, sizeof(ProcesoOC_on_Disk), count, archivo) != count) {
+            perror("Error al leer los procesos OC legacy desde el archivo");
+            free(buffer_disk);
+            fclose(archivo);
+            return OC_ERR_IO;
+        }
+
         fclose(archivo);
-        *out_lista = NULL;
-        *out_count = 0;
+
+        // Convertir a lista enlazada en memoria (legacy v1.0.0)
+        ProcesoOC *head = NULL;
+        ProcesoOC *tail = NULL;
+
+        for (size_t i = 0; i < count; ++i) {
+            ProcesoOC *nuevo = malloc(sizeof(ProcesoOC));
+            if (!nuevo) {
+                perror("Error al asignar memoria para la lista de procesos OC (legacy)");
+
+                // Liberar lista parcial ya construida
+                ProcesoOC *tmp = head;
+                while (tmp) {
+                    ProcesoOC *next = tmp->sig;
+                    free(tmp);
+                    tmp = next;
+                }
+
+                free(buffer_disk);
+                return OC_ERR_MEMORIA;
+            }
+
+            disk_v1_0_0_to_mem(&buffer_disk[i], nuevo);
+            nuevo->sig = NULL;  // Esencial
+
+            if (!head) {
+                head = tail = nuevo;
+            } else {
+                tail->sig = nuevo;
+                tail = nuevo;
+            }   
+        }   
+
+        free(buffer_disk);
+
+        *out_lista = head;
+        *out_count = (uint32_t)count;
         return OC_OK;
     }
-
-    // Posicionarnos justo donde empiezan los registros
-    if (fseek(archivo, sizeof(uint32_t), SEEK_SET) != 0) {
-        perror("Error al buscar el inicio de los datos legacy");
-        fclose(archivo);
-        return OC_ERR_IO;
-    }
-
-    // Reservar buffer para los registros en formato de disco
-    size_t count = header_count;
-    ProcesoOC_on_Disk *buffer_disk =
-        malloc(count * sizeof(ProcesoOC_on_Disk));
-    if (!buffer_disk) {
-        perror("Error al asignar memoria para leer procesos legacy");
-        fclose(archivo);
-        return OC_ERR_MEMORIA;
-    }
-
-    if (fread(buffer_disk, sizeof(ProcesoOC_on_Disk), count, archivo) != count) {
-        perror("Error al leer los procesos OC legacy desde el archivo");
-        free(buffer_disk);
-        fclose(archivo);
-        return OC_ERR_IO;
-    }
-
-    fclose(archivo);
-
-    // Convertir a la representación en memoria
-    ProcesoOC *lista = malloc(count * sizeof(ProcesoOC));
-    if (!lista) {
-        perror("Error al asignar memoria para la lista de procesos OC");
-        free(buffer_disk);
-        return OC_ERR_MEMORIA;
-    }
-
-    for (size_t i = 0; i < count; ++i) {
-        disk_v1_0_0_to_mem(&buffer_disk[i], &lista[i]);
-    }
-
-    free(buffer_disk);
-
-    // DEBUG: Verificar la lista cargada
-    printf("DEBUG: count = %zu\n", count);
-    for (size_t i = 0; i < count; ++i) {
-        printf("  [%zu] num_OC=%d, prov=%s, etiq=%s, cant=%zu\n, estado=%d, inicio=%lld, fin=%lld\n",
-           i,
-           lista[i].num_OC,
-           lista[i].nombre_prov,
-           lista[i].nombre_etiq,
-           lista[i].cant_productos,
-           lista[i].estado,
-           lista[i].inicio,
-           lista[i].fin);
-    }
-    *out_lista = lista;
-    *out_count = (uint32_t)count;
-    return OC_OK;
-}
 }

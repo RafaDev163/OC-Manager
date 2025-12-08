@@ -55,15 +55,15 @@ typedef struct ProcesoOC {
 
 // Estructura legacy para la version v1.0.0 del archivo .bin
 // Estructura para el almacenamiento en disco de los datos
-typedef struct{
-    int32_t estado;
-    int num_OC;
-    char nombre_prov[MAX_SIZE_NOMBRE_PROVEEDOR];
-    char nombre_etiq[MAX_SIZE_NOMBRE_ETIQUETADOR];
-    size_t cant_productos;
-    time_t inicio;
-    time_t fin;    
-} ProcesoOC_on_Disk;
+typedef struct{                                         // v1.0.0 64 bits       // v1.0.0 32 bits
+    int32_t estado;                                     // 4 bytes              // 4 bytes
+    int num_OC;                                         // 4 bytes              // 4 bytes
+    char nombre_prov[MAX_SIZE_NOMBRE_PROVEEDOR];        // 100 bytes            // 100 bytes
+    char nombre_etiq[MAX_SIZE_NOMBRE_ETIQUETADOR];      // 50 bytes             // 50 bytes
+    size_t cant_productos;                              // 8 bytes              // 4 bytes
+    time_t inicio;                                      // 8 bytes              // 4 bytes
+    time_t fin;                                         // 8 bytes              // 4 bytes
+} ProcesoOC_on_Disk;      // Total: 182 bytes + padding = 184 bytes // Total: 170 bytes + padding = 172 bytes 
 
 // Estructura actual para la version v1.0.1 del archivo .bin
 // Estructura para el almacenamiento en disco de los datos
