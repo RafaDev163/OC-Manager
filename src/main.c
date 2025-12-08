@@ -219,9 +219,90 @@ int main(){
                 pausar_pantalla();
                 break;
             case 5:
-                limpiar_pantalla();
-                listarProcesosOC(lista_procesos);
-                pausar_pantalla();
+                int opcion_listado = 0;
+                do {
+                    limpiar_pantalla();
+                    printf("Listado de Procesos OC - Filtros\n");
+                    printf("1. Listar todos\n");
+                    printf("2. Filtrar por numero de OC\n");
+                    printf("3. Filtrar por estado\n");
+                    printf("4. Regresar al menu principal\n");
+                    printf("Seleccione una opcion: ");
+
+                    if (scanf("%d", &opcion_listado) != 1) {
+                        printf("Entrada invalida.\n");
+                        limpiar_buffer();
+                        pausar_pantalla();
+                        continue;
+                    }
+                    limpiar_buffer();
+
+                    if (opcion_listado == 1) {
+                        limpiar_pantalla();
+                        listarProcesosOC(lista_procesos);
+                        pausar_pantalla();
+                    } else if (opcion_listado == 2) {
+                        int num_oc;
+                        int scan_ok;
+                        do {
+                            printf("Ingrese el numero de OC a buscar: ");
+                            scan_ok = scanf("%d", &num_oc);
+                            if (scan_ok != 1) {
+                                printf("Entrada invalida. Debe ser un numero.\n");
+                                limpiar_buffer();
+                            }
+                        } while (scan_ok != 1);
+                        limpiar_buffer();
+
+                        limpiar_pantalla();
+                        listarProcesosOCFiltrado(lista_procesos,
+                                     /*usar_filtro_oc*/1, num_oc,
+                                     /*usar_filtro_estado*/0, 0);
+                        pausar_pantalla();
+
+                    } else if (opcion_listado == 3) {
+                        int opcion_estado;
+                        EstadoProcesoOC est_filtro;
+
+                        printf("Seleccione el estado:\n");
+                        printf("1. PENDIENTE\n");
+                        printf("2. ETIQUETANDO\n");
+                        printf("3. ETIQUETADA\n");
+                        printf("4. SURTIDA\n");
+                        printf("Opcion: ");
+                        if (scanf("%d", &opcion_estado) != 1) {
+                            printf("Entrada invalida.\n");
+                            limpiar_buffer();
+                            pausar_pantalla();
+                            continue;
+                        }
+                        limpiar_buffer();
+
+                        switch (opcion_estado) {
+                            case 1: est_filtro = OC_PENDIENTE;   break;
+                            case 2: est_filtro = OC_ETIQUETANDO; break;
+                            case 3: est_filtro = OC_ETIQUETADA;  break;
+                            case 4: est_filtro = OC_SURTIDA;     break;
+                            default:
+                                printf("Opcion de estado invalida.\n");
+                                pausar_pantalla();
+                            continue;
+                        }
+
+                        limpiar_pantalla();
+                        listarProcesosOCFiltrado(lista_procesos,
+                                     /*usar_filtro_oc*/0, 0,
+                                     /*usar_filtro_estado*/1, est_filtro);
+                        pausar_pantalla();
+                    } else if (opcion_listado == 4) {
+                        // salir del submenú
+                    } else {
+                        printf("Opcion invalida.\n");
+                        pausar_pantalla();
+                    }
+
+                } while (opcion_listado != 4);
+
                 break;
             case 6:
                 guardarProcesosOCEnDisco("procesos_oc.bin", lista_procesos, count);

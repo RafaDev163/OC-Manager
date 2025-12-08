@@ -46,6 +46,70 @@ static void mem_to_disk_v1_0_1(const ProcesoOC *mem, ProcesoOC_on_Disk_v1_0_1 *d
     disk->fecha_surtido = mem->fecha_surtido;
 }
 
+// helper para listar todos los procesos OC
+static void imprimirProcesoOC(const ProcesoOC *actual) {
+    char inicio_str[26];
+    char fin_str[26];
+    char fecha_surtido_str[26];
+
+    strcpy(inicio_str, "N/A");
+    strcpy(fin_str, "N/A");
+    strcpy(fecha_surtido_str, "N/A");
+
+    if (actual->inicio != 0) {
+        ctime_s(inicio_str, sizeof(inicio_str), &actual->inicio);
+        inicio_str[strcspn(inicio_str, "\n")] = 0;
+    }
+    if (actual->fin != 0) {
+        ctime_s(fin_str, sizeof(fin_str), &actual->fin);
+        fin_str[strcspn(fin_str, "\n")] = 0;
+    }
+    if (actual->fecha_surtido != 0) {
+        struct tm tm_surtido;
+        if (localtime_s(&tm_surtido, &actual->fecha_surtido) == 0) {
+            if (strftime(fecha_surtido_str,
+                         sizeof(fecha_surtido_str),
+                         "%d/%m/%Y",
+                         &tm_surtido) == 0) {
+                strcpy(fecha_surtido_str, "FECHA_ERR");
+            }
+        } else {
+            strcpy(fecha_surtido_str, "FECHA_ERR");
+        }
+    }
+
+    const char *estado_str;
+    switch (actual->estado) {
+        case OC_PENDIENTE:
+            estado_str = "PENDIENTE";
+            break;
+        case OC_ETIQUETANDO:
+            estado_str = "ETIQUETANDO";
+            break;
+        case OC_ETIQUETADA:
+            estado_str = "ETIQUETADA";
+            break;
+        case OC_SURTIDA:
+            estado_str = "SURTIDA";
+            break;
+        default:
+            estado_str = "DESCONOCIDO";
+            break;
+    }
+
+    printf("OC Nro: %d | Proveedor: %s | Etiquetador: %s | Cantidad Productos: %zu\n"
+           "  Inicio: %s | Fin: %s | Estado: %s | Fecha Surtido: %s\n",
+           actual->num_OC,
+           actual->nombre_prov,
+           actual->nombre_etiq,
+           actual->cant_productos,
+           inicio_str,
+           fin_str,
+           estado_str,
+           fecha_surtido_str);
+}
+
+
 
 void limpiar_buffer(){
     int c;
@@ -188,64 +252,60 @@ ProcesoOC* buscarProcesoOC(ProcesoOC *lista, int num_OC) {
 
 void listarProcesosOC(const ProcesoOC *lista) {
     const ProcesoOC *actual = lista;
+
     printf("Listado de Procesos de Ordenes de Compra:\n");
     printf("------------------------------------------------------------\n");
+    if (!actual) {
+        printf("No hay procesos registrados.\n");
+        printf("------------------------------------------------------------\n");
+        return;
+    }
+
     while (actual) {
-        char inicio_str[26];
-        char fin_str[26];
-        char fecha_surtido_str[26];
-        strcpy(inicio_str, "N/A");
-        strcpy(fin_str, "N/A");
-        strcpy(fecha_surtido_str, "N/A");
-
-        if (actual->inicio != 0) {
-            ctime_s(inicio_str, sizeof(inicio_str), &actual->inicio);
-            inicio_str[strcspn(inicio_str, "\n")] = 0;
-        }
-        if (actual->fin != 0) {
-            ctime_s(fin_str, sizeof(fin_str), &actual->fin);
-            fin_str[strcspn(fin_str, "\n")] = 0;
-        }
-        if (actual->fecha_surtido != 0) {
-            ctime_s(fecha_surtido_str, sizeof(fecha_surtido_str), &actual->fecha_surtido);
-            fecha_surtido_str[strcspn(fecha_surtido_str, "\n")] = 0;
-        }
-
-        const char *estado_str;
-        switch (actual->estado) {
-            case OC_PENDIENTE:
-                estado_str = "PENDIENTE";
-                break;
-            case OC_ETIQUETANDO:
-                estado_str = "ETIQUETANDO";
-                break;
-            case OC_ETIQUETADA:
-                estado_str = "ETIQUETADA";
-                break;
-            case OC_SURTIDA:
-                estado_str = "SURTIDA";
-                break;
-            default:
-                estado_str = "DESCONOCIDO";
-                break;
-        }
-
-        printf("OC Nro: %d | Proveedor: %s | Etiquetador: %s | Cantidad Productos: %zu | Inicio: %s | Fin: %s | Estado: %s\n | Fecha Surtido: %s\n",
-               actual->num_OC,
-               actual->nombre_prov,
-               actual->nombre_etiq,
-               actual->cant_productos,
-               inicio_str,
-               fin_str,
-               estado_str,
-               fecha_surtido_str);
-
+        imprimirProcesoOC(actual);
         actual = actual->sig;
     }
+
     printf("------------------------------------------------------------\n");
 }
 
+void listarProcesosOCFiltrado(const ProcesoOC *lista, int usar_filtro_oc, int num_oc_filtro, int usar_filtro_estado, EstadoProcesoOC estado_filtro){
+    const ProcesoOC *actual = lista;
+    int encontrados = 0;
+    
+    printf("Listado de Procesos de Ordenes de Compra (Filtrado):\n");
+    printf("------------------------------------------------------------\n");
+    if (!actual) {
+        printf("No hay procesos registrados.\n");
+        printf("------------------------------------------------------------\n");
+        return;
+    }
 
+    while (actual) {
+        int coincide = 1;
+
+        if (usar_filtro_oc && actual->num_OC != num_oc_filtro) {
+            coincide = 0;
+        }
+
+        if (usar_filtro_estado && actual->estado != estado_filtro) {
+            coincide = 0;
+        }
+
+        if (coincide) {
+            imprimirProcesoOC(actual);
+            encontrados++;
+        }
+
+        actual = actual->sig;
+    }
+
+    if (encontrados == 0) {
+        printf("No se encontraron procesos que coincidan con el filtro.\n");
+    }
+
+    printf("------------------------------------------------------------\n");
+}
 
 /* * Guarda la lista de procesos OC en un archivo binario.
 

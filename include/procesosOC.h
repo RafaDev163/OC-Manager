@@ -21,6 +21,7 @@
 #define OC_ERR_YA_FINALIZADO -7
 #define OC_ERR_IO            -8
 #define OC_ERR_LECTURA       -9
+#define FECHA_ERROR          -10
 
 // Se define un encabezado de archivo para validar el formato del 
 // archivo .bin para mantener compatibilidad futura
@@ -84,8 +85,9 @@ int iniciarEtiquetadoOC(ProcesoOC *proceso);
 int finalizarEtiquetadoOC(ProcesoOC *proceso);
 int surtirOC(ProcesoOC *proceso);
 void listarProcesosOC(const ProcesoOC *lista);
+void listarProcesosOCFiltrado(const ProcesoOC *lista, int usar_filtro_oc, int num_oc_filtro, int usar_filtro_estado, EstadoProcesoOC estado_filtro);
 
-// Funciones de utilidad
+// Funciones de utilidadss
 void limpiar_buffer();
 void liberarListaProcesosOC(ProcesoOC **lista);
 ProcesoOC* buscarProcesoOC(ProcesoOC *lista, int num_OC);
